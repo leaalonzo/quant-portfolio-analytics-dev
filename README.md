@@ -40,16 +40,27 @@ pip install -r requirements.txt
 
 ## 🧠 Usage
 1. Fetch market data
-```bash python -m scripts.build_data ```
+```bash 
+python -m utils.fetch_all_data 
+python -m utils.merge_to_duckdb 
+```
 2. Build factor scores
-```bash python -m scripts.build_factors ```
-3. Query data
+```bash 
+python -m scripts.build_factors 
+```
+3. Run Backtest
+```bash 
+python -m scripts.run_backtest 
+```
+4. Query data
 ```bash
 -- in DuckDB CLI
 SELECT * FROM factors_all LIMIT 10;
 ```
-4. Launch dashboard
-```bash streamlit run app/main.py ```
+5. Launch dashboard
+```bash 
+streamlit run app/main.py 
+```
 
 ---
 
