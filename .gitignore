@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtualenvs
+.venv/
+venv/
+env/
+
+# macOS
+.DS_Store
+
+# Jupyter
+.ipynb_checkpoints/
+# Optionally keep notebooks but strip outputs before committing
+
+# Data / results / models
+#/data/
+#/outputs/
+#/results/
+#*.csv
+#*.pkl
+#*.h5
+
+# Secrets
+.env
+*.pem
+id_rsa
+credentials.json
+aws_credentials
+
+# IDE
+.vscode/
+.idea/
+
+# Logs & DB
+*.log
+*.sqlite3
+*.db

@@ -1,0 +1,36 @@
+# config.yml
+
+equities:
+  tickers:
+    - AAPL
+    - MSFT
+    - GOOGL
+    - AMZN
+    - META
+    - NVDA
+    - BABA
+    - TM
+    - NSRGY
+    - UNH
+    - JNJ
+    - V
+    - PG
+    - SONY
+    - RIO
+    - KO
+    - DIS
+  start_date: "2020-01-01"
+  end_date: null
+
+crypto:
+  tickers:
+    - BTC-USD
+    - ETH-USD
+    - SOL-USD
+    - DOGE-USD
+    - BNB-USD
+    - ADA-USD
+    - XRP-USD
+    - LTC-USD
+  start_date: "2020-01-01"
+  end_date: null

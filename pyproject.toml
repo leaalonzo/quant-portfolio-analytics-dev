@@ -1,0 +1,14 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "quant-portfolio-analytics-dev"
+version = "0.1.0"
+description = "Quant portfolio analytics pipeline"
+readme = "README.md"
+requires-python = ">=3.9"
+
+[tool.setuptools.packages.find]
+include = ["utils*", "app*", "scripts*"]
+exclude = ["data*", "notebooks*"]
