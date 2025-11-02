@@ -40,18 +40,21 @@ pip install -r requirements.txt
 
 ## 🧠 Usage
 1. Fetch market data
-python -m scripts.build_data
+```bash python -m scripts.build_data ```
 2. Build factor scores
-python -m scripts.build_factors
+```bash python -m scripts.build_factors ```
 3. Query data
+```bash
 -- in DuckDB CLI
 SELECT * FROM factors_all LIMIT 10;
+```
 4. Launch dashboard
-streamlit run app/main.py
+```bash streamlit run app/main.py ```
 
 ---
 
 ## 📅 Roadmap
+```bash
 Week	Task	Status
 1	Data pipeline	✅
 2	Factor construction	✅
@@ -61,6 +64,7 @@ Week	Task	Status
 6	Dashboard UI	⏳
 7	AI explainability	⏳
 8	Deployment & docs	⏳
+```
 
 ---
 
