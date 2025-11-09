@@ -12,17 +12,15 @@ def load_data():
     results = pd.read_csv("data/portfolio_results_all.csv", parse_dates=["date"])
     stats = pd.read_csv("data/portfolio_stats_all.csv")
     asset_returns = pd.read_csv("data/asset_daily_returns.csv", parse_dates=["date"]).set_index("date")
-
+    holdings = pd.read_csv("data/portfolio_holdings.csv")  # NEW
+    
     # 🔧 Ensure all values are floats
     asset_returns = asset_returns.apply(pd.to_numeric, errors="coerce")
+    return results, stats, asset_returns, holdings
 
-    return results, stats, asset_returns
-
-
-results, stats, asset_returns = load_data()
+results, stats, asset_returns, holdings = load_data()  # Updated
 
 st.sidebar.header("⚙️ Configuration")
-
 asset_type = st.sidebar.selectbox("Asset Type", sorted(results["asset_type"].unique()))
 factor = st.sidebar.selectbox("Factor", sorted(results["factor"].unique()))
 mode = st.sidebar.radio("Portfolio Mode", ["long_only", "long_short"])
@@ -47,57 +45,78 @@ if subset.empty:
 # === TAB 1: Performance ===
 if tab == "Performance":
     st.title(f"📈 {asset_type} Portfolio Performance — {factor.title()} ({mode.replace('_',' ').title()})")
-
+    
     col1, col2, col3, col4 = st.columns(4)
     stats_dict = subset_stats.iloc[0].to_dict() if not subset_stats.empty else {}
-
     col1.metric("Cumulative Return", f"{stats_dict.get('Cumulative Return', 0):.2%}")
     col2.metric("Sharpe Ratio", f"{stats_dict.get('Sharpe Ratio', 0):.2f}")
     col3.metric("Volatility", f"{stats_dict.get('Volatility', 0):.2%}")
     col4.metric("Max Drawdown", f"{stats_dict.get('Max Drawdown', 0):.2%}")
-
+    
     st.subheader("Cumulative Portfolio Performance")
     fig = px.line(subset, x="date", y="cumulative", title="Cumulative Performance")
     fig.update_layout(template="plotly_dark", height=400)
     st.plotly_chart(fig, use_container_width=True)
-
+    
     st.subheader("Rolling 60-Day Sharpe Ratio")
     subset["rolling_sharpe"] = subset["portfolio_return"].rolling(60).mean() / subset["portfolio_return"].rolling(60).std()
     fig2 = px.line(subset, x="date", y="rolling_sharpe", title="Rolling 60-Day Sharpe")
     fig2.update_layout(template="plotly_dark", height=300)
     st.plotly_chart(fig2, use_container_width=True)
-
+    
     with st.expander("📄 Show Raw Data"):
         st.dataframe(subset.tail(20))
 
 # === TAB 2: Optimization & Risk ===
 else:
     st.title("🧠 Portfolio Optimization & Risk Attribution")
-    st.markdown("Optimize weights using **PyPortfolioOpt** and decompose portfolio risk.")
+    st.markdown(f"Optimizing **{asset_type} - {factor.title()} - {mode.replace('_', ' ').title()}** portfolio")
     
     opt_method = st.selectbox("Optimization Method", ["max_sharpe", "min_volatility"])
     
     st.subheader("🔍 Data Preparation")
     
-    # === FILTER BY ASSET TYPE ===
-    def get_asset_type_from_ticker(ticker):
-        """Determine if a ticker is Equity or Crypto based on naming convention"""
-        if '-USD' in ticker:
-            return 'Crypto'
-        else:
-            return 'Equity'
+    # === GET FACTOR-SPECIFIC TICKERS FROM HOLDINGS FILE ===
+    holdings_subset = holdings[
+        (holdings["asset_type"] == asset_type) &
+        (holdings["factor"] == factor) &
+        (holdings["mode"] == mode)
+    ]
     
-    # Filter asset_returns to only include the selected asset_type
-    available_tickers = [col for col in asset_returns.columns 
-                        if get_asset_type_from_ticker(col) == asset_type]
-    
-    if not available_tickers:
-        st.error(f"❌ No {asset_type} assets found in asset_daily_returns.csv")
+    if holdings_subset.empty:
+        st.error(f"❌ No holdings found for {asset_type} - {factor} - {mode}")
+        st.info("This might mean the backtest hasn't been run yet. Please run: python scripts/run_backtest.py")
         st.stop()
     
-    st.info(f"📊 Filtering to {len(available_tickers)} {asset_type} assets")
+    # Parse comma-separated tickers
+    selected_tickers = holdings_subset.iloc[0]['tickers'].split(',')
+    num_selected = holdings_subset.iloc[0]['num_tickers']
     
-    # Use only the filtered assets
+    st.success(f"✅ Using {num_selected} assets selected by {factor} strategy")
+    with st.expander("View factor-selected assets"):
+        st.write(', '.join(selected_tickers))
+    
+    # Filter to tickers that have data in asset_returns
+    available_tickers = [t for t in selected_tickers if t in asset_returns.columns]
+    
+    if len(available_tickers) < 2:
+        st.warning(f"⚠️ Only {len(available_tickers)} factor-selected assets have sufficient return data.")
+        st.info(f"Expanding to all {asset_type} assets as fallback...")
+        
+        # Fallback to all assets in asset class
+        def get_asset_type_from_ticker(ticker):
+            if '-USD' in ticker:
+                return 'Crypto'
+            else:
+                return 'Equity'
+        
+        available_tickers = [col for col in asset_returns.columns 
+                            if get_asset_type_from_ticker(col) == asset_type]
+        
+        if len(available_tickers) < 2:
+            st.error(f"❌ Only {len(available_tickers)} {asset_type} assets available")
+            st.stop()
+    
     pivot = asset_returns[available_tickers].copy()
     pivot = pivot.select_dtypes(include=["number"])
     
@@ -108,12 +127,11 @@ else:
     st.dataframe(nan_pct.sort_values().head(10).to_frame('NaN %'))
     
     # === DYNAMIC THRESHOLD BASED ON ASSET TYPE ===
-    # Equities have sparser data due to portfolio selection, so use higher threshold
     if asset_type == 'Equity':
-        threshold = 80  # Allow up to 80% NaNs for equities
-        st.info("ℹ️ Using 80% NaN threshold for Equity (due to sparse portfolio selection)")
+        threshold = 80
+        st.info("ℹ️ Using 80% NaN threshold for Equity")
     else:
-        threshold = 50  # Crypto has better coverage
+        threshold = 50
         st.info("ℹ️ Using 50% NaN threshold for Crypto")
     
     pivot_clean = pivot.loc[:, nan_pct < threshold]
@@ -122,7 +140,7 @@ else:
     st.write(f"**Shape:** {pivot_clean.shape}")
     
     if pivot_clean.shape[1] < 2:
-        st.error(f"❌ Only {pivot_clean.shape[1]} {asset_type} assets available with <{threshold}% NaNs")
+        st.error(f"❌ Only {pivot_clean.shape[1]} assets available with <{threshold}% NaNs")
         
         # Show what's available at different thresholds
         st.write("\n**Assets available at different thresholds:**")
@@ -133,7 +151,8 @@ else:
     
     # Check for infinities
     inf_count_before = np.isinf(pivot_clean).sum().sum()
-    st.write(f"**Infinity values found:** {inf_count_before}")
+    if inf_count_before > 0:
+        st.write(f"**Infinity values found:** {inf_count_before}")
     
     # Replace infinities with NaN, then fill
     pivot_clean = pivot_clean.replace([np.inf, -np.inf], np.nan)
@@ -164,11 +183,10 @@ else:
         st.stop()
     
     if pivot_clean.shape[1] < 2:
-        st.error(f"❌ Insufficient {asset_type} assets after cleaning")
+        st.error(f"❌ Insufficient assets after cleaning")
         st.stop()
     
-    st.success(f"✅ Ready: {pivot_clean.shape[0]} days × {pivot_clean.shape[1]} {asset_type} assets")
-    st.write(f"**Assets:** {list(pivot_clean.columns)}")
+    st.success(f"✅ Ready: {pivot_clean.shape[0]} days × {pivot_clean.shape[1]} assets")
     
     # Run optimization
     try:
@@ -185,7 +203,7 @@ else:
         st.subheader("Optimized Weights")
         fig = px.bar(x=w_series.index, y=w_series.values, 
                      labels={'x': 'Asset', 'y': 'Weight'},
-                     title=f'{asset_type} Portfolio Allocation ({opt_method})')
+                     title=f'{asset_type} - {factor.title()} Portfolio ({opt_method.replace("_", " ").title()})')
         st.plotly_chart(fig, use_container_width=True)
         
         ann_return, ann_vol, sharpe = perf
@@ -206,6 +224,32 @@ else:
             'Weight': '{:.2%}',
             'Expected Return': '{:.2%}'
         }))
+        
+        # Add comparison to backtest
+        with st.expander("📊 Compare to Factor Strategy Performance"):
+            st.write(f"**{factor.title()} {mode.replace('_', ' ').title()} Strategy vs Mean-Variance Optimization:**")
+            stats_dict = subset_stats.iloc[0].to_dict() if not subset_stats.empty else {}
+            
+            comparison_df = pd.DataFrame({
+                'Metric': ['Annual Return', 'Volatility', 'Sharpe Ratio'],
+                f'{factor.title()} Strategy (Equal-Weighted)': [
+                    f"{stats_dict.get('Cumulative Return', 0):.2%}",
+                    f"{stats_dict.get('Volatility', 0):.2%}",
+                    f"{stats_dict.get('Sharpe Ratio', 0):.2f}"
+                ],
+                f'Optimized Weights ({opt_method})': [
+                    f"{ann_return:.2%}",
+                    f"{ann_vol:.2%}",
+                    f"{sharpe:.2f}"
+                ]
+            })
+            
+            st.dataframe(comparison_df)
+            st.caption(f"""
+            **Key Difference:** 
+            - **Left column**: Historical performance using equal weights among top {factor}-ranked assets
+            - **Right column**: Forward-looking optimization that determines optimal weights to maximize risk-adjusted returns
+            """)
         
     except Exception as e:
         st.error(f"⚠️ Optimization failed: {e}")
