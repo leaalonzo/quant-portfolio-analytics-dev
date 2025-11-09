@@ -9,34 +9,29 @@ def form_portfolios(
     group_col: str | None = None,
 ):
     """
-    Form long/short portfolios based on factor scores, optionally by asset_type.
-    Handles cases where some asset groups (e.g. Crypto) start later.
+    Form long/short portfolios based on factor scores.
+    Returns:
+        portfolios_df: Portfolio holdings with positions
+        asset_daily_returns: Complete return history for ALL assets in universe
     """
     df.columns = df.columns.str.lower()
     portfolios = []
-
+    
+    # === BUILD PORTFOLIO HOLDINGS ===
     group_iter = df.groupby([group_col, "date"]) if group_col else df.groupby("date")
-
+    
     for keys, group in group_iter:
-        # Skip groups with no factor scores
-        if "multi_factor_score" not in group.columns:
+        group = group.dropna(subset=["multi_factor_score", "return"])
+        n = len(group)
+        
+        if n < 5:  # skip tiny groups
             continue
-
-        # Handle missing returns (e.g. for early crypto dates)
-        if "return" not in group.columns:
-            group["return"] = np.nan
-
-        group = group.dropna(subset=["multi_factor_score"])
-        group["return"] = group["return"].fillna(0.0)
-
-        if len(group) < 5:  # not enough assets to form portfolios
-            continue
-
-        cutoff = int(len(group) * quantile)
-        if cutoff == 0:
-            continue
-
+        
+        cutoff = max(1, int(n * quantile))
+        
         if long_short:
+            if cutoff * 2 > n:
+                continue
             long = group.nlargest(cutoff, "multi_factor_score").copy()
             short = group.nsmallest(cutoff, "multi_factor_score").copy()
             long["position"] = 1 / len(long)
@@ -46,20 +41,39 @@ def form_portfolios(
             long = group.nlargest(cutoff, "multi_factor_score").copy()
             long["position"] = 1 / len(long)
             combined = long
-
+        
         combined["weighted_return"] = combined["return"] * combined["position"]
+        
         if group_col:
             combined[group_col] = group[group_col].iloc[0]
         combined["date"] = group["date"].iloc[0]
+        
         portfolios.append(combined)
-
-
+    
     if not portfolios:
-        print("⚠️ No valid portfolios formed — possibly missing data for some asset groups.")
-        return pd.DataFrame()
+        print("⚠️ Warning: No portfolio data formed.")
+        return pd.DataFrame(), pd.DataFrame()
+    
+    portfolios_df = pd.concat(portfolios, ignore_index=True)
+    
+    # === BUILD COMPLETE ASSET RETURNS (FIX IS HERE) ===
+    # Instead of using portfolios_df, use the ORIGINAL df to get ALL asset returns
+    asset_daily_returns = df.pivot_table(
+        index="date", 
+        columns="ticker", 
+        values="return", 
+        aggfunc="first"  # Use first instead of mean to avoid duplicates
+    ).sort_index()
+    
+    # Only keep tickers that appeared in at least one portfolio
+    # (optional - you can remove this to keep ALL tickers)
+    portfolio_tickers = portfolios_df['ticker'].unique()
+    asset_daily_returns = asset_daily_returns[
+        [col for col in asset_daily_returns.columns if col in portfolio_tickers]
+    ]
+    
+    return portfolios_df, asset_daily_returns
 
-    print(f"✅ Portfolios formed: {len(portfolios)} groups total.")
-    return pd.concat(portfolios, ignore_index=True)
 
 def compute_performance(portfolios: pd.DataFrame):
     """

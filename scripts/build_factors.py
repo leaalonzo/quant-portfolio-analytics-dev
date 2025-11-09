@@ -48,8 +48,8 @@ eq["asset_type"] = "Equity"
 cr["asset_type"] = "Crypto"
 
 # Before saving
-eq = eq.drop(columns=["return"], errors="ignore")
-cr = cr.drop(columns=["return"], errors="ignore")
+#eq = eq.drop(columns=["return"], errors="ignore")
+#cr = cr.drop(columns=["return"], errors="ignore")
 
 #if "return" not in cr.columns:
 #    cr = cr.sort_values(["ticker", "date"])

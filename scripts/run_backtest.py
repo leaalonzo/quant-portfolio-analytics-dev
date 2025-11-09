@@ -1,92 +1,98 @@
 # scripts/run_backtest.py
-
-from utils.backtest import form_portfolios, compute_performance
 import pandas as pd
+from utils.backtest import form_portfolios, compute_performance
+import os
+import duckdb
 
-# === Load factor data ===
-eq = pd.read_csv("data/factors_equities.csv", parse_dates=["date"])
-cr = pd.read_csv("data/factors_crypto.csv", parse_dates=["date"])
+DATA_DIR = "data"
+os.makedirs(DATA_DIR, exist_ok=True)
 
-# Ensure consistent column names
-#eq.rename(columns={"Ticker": "ticker", "Date": "date"}, inplace=True)
-#cr.rename(columns={"Ticker": "ticker", "Date": "date"}, inplace=True)
+# === Load prepared factor data ===
+df_eq = pd.read_csv(os.path.join(DATA_DIR, "factors_equities.csv"), parse_dates=["date"])
+df_cr = pd.read_csv(os.path.join(DATA_DIR, "factors_crypto.csv"), parse_dates=["date"])
+df = pd.concat([df_eq, df_cr], ignore_index=True)
+df.columns = df.columns.str.lower()
 
-# Unify factor column name
-eq["multi_factor_score"] = eq["multi_factor_score"]
-cr["multi_factor_score"] = cr["multi_factor_score"]
+# === Configuration ===
+factors = ["momentum", "value", "quality", "multi_factor_score"]
+asset_types = ["Equity", "Crypto"]
+modes = ["long_short", "long_only"]
 
-# Assign asset types
-eq["asset_type"] = "Equity"
-cr["asset_type"] = "Crypto"
+# === Results containers ===
+all_perf = []
+all_stats = []
+all_asset_returns = []
 
-# === Add return column (simple % change) ===
-# Assume you have raw price data in /data/raw_equities.csv and /data/raw_crypto.csv
-try:
-    prices_eq = pd.read_csv("data/raw_equities.csv", parse_dates=["date"])
-    prices_cr = pd.read_csv("data/raw_crypto.csv", parse_dates=["date"])
+# === Run backtests ===
+for asset in asset_types:
+    for factor in factors:
+        for mode in modes:
+            print(f"\n▶️ Running {asset} — {factor} — {mode}")
 
-    prices_eq["return"] = prices_eq.groupby("ticker")["close"].pct_change()
-    prices_cr["return"] = prices_cr.groupby("ticker")["close"].pct_change()
+            subset = df[df["asset_type"] == asset].copy()
+            if subset.empty:
+                continue
 
-    # Merge returns into factor data
-    eq = pd.merge(eq, prices_eq[["date", "ticker", "return"]], on=["date", "ticker"], how="left")
-    cr = pd.merge(cr, prices_cr[["date", "ticker", "return"]], on=["date", "ticker"], how="left")
+            subset["multi_factor_score"] = subset[factor]
 
-except FileNotFoundError:
-    print("⚠️ raw_equities.csv or raw_crypto.csv not found — generating synthetic returns for demo.")
-    eq["return"] = eq.groupby("ticker")["multi_factor_score"].diff() * 0.01
-    cr["return"] = cr.groupby("ticker")["multi_factor_score"].diff() * 0.01
+            print(subset[['date','ticker','multi_factor_score','return']].tail())
+            print(subset.dropna(subset=['multi_factor_score','return']).shape)
 
-# === Combine data ===
-df = pd.concat([eq, cr], ignore_index=True)
+            quant = 0.2 if asset == "Equity" else 0.4  # more inclusive for small universes
+            # --- Portfolio formation now returns both portfolio & per-asset returns ---
+            portfolios, asset_returns = form_portfolios(
+                subset,
+                quantile=quant,
+                long_short=(mode == "long_short"),
+                group_col="asset_type",
+            )
 
-# Ensure both datasets share a common start date (for consistency)
-crypto_start = df[df["asset_type"] == "Crypto"]["date"].min()
-df = df[df["date"] >= crypto_start]
-print(f"📅 Backtest start aligned to {crypto_start.date()} to include both asset classes.")
+            perf, stats = compute_performance(portfolios)
+            if perf.empty:
+                print(f"⚠️ No results for {asset} — {factor} — {mode}")
+                continue
 
-# === Run backtest ===
-portfolios = form_portfolios(df, quantile=0.2, long_short=True, group_col="asset_type")
+            # Tag metadata
+            perf["asset_type"] = asset
+            perf["factor"] = factor
+            perf["mode"] = mode
 
-perf_eq, stats_eq = compute_performance(portfolios[portfolios["asset_type"] == "Equity"])
-perf_eq["asset_type"] = "Equity"
+            stats["asset_type"] = asset
+            stats["factor"] = factor
+            stats["mode"] = mode
 
-perf_cr, stats_cr = compute_performance(portfolios[portfolios["asset_type"] == "Crypto"])
-perf_cr["asset_type"] = "Crypto"
+            asset_returns["asset_type"] = asset
+            asset_returns["factor"] = factor
+            asset_returns["mode"] = mode
 
-print("CRYPTO PORTFOLIOS")
-print(perf_cr.tail())
+            all_perf.append(perf)
+            all_stats.append(stats)
+            all_asset_returns.append(asset_returns)
 
-perf = pd.concat([perf_eq, perf_cr])
-stats = pd.DataFrame([stats_eq, stats_cr])
+# === Combine & Save Results ===
+perf_df = pd.concat(all_perf, ignore_index=True)
+stats_df = pd.DataFrame(all_stats)
 
-print(perf.head())
+# For asset returns, concatenate but DON'T keep the metadata columns in the CSV
+asset_ret_df = pd.concat(all_asset_returns, ignore_index=False)
 
-# === Save results ===
-perf.to_csv("data/portfolio_results.csv", index=False)
-# Combine results and save stats cleanly
-stats_all = []
+# Remove metadata columns before saving to CSV
+asset_ret_csv = asset_ret_df.drop(columns=['asset_type', 'factor', 'mode'], errors='ignore')
 
-# Equity
-stats_eq["asset_type"] = "Equity"
-stats_all.append(stats_eq)
+perf_df.to_csv(f"{DATA_DIR}/portfolio_results_all.csv", index=False)
+stats_df.to_csv(f"{DATA_DIR}/portfolio_stats_all.csv", index=False)
+asset_ret_csv.to_csv(f"{DATA_DIR}/asset_daily_returns.csv")  # Save without metadata
 
-# Crypto (if exists)
-if not perf_cr.empty:
-    stats_cr["asset_type"] = "Crypto"
-    stats_all.append(stats_cr)
-else:
-    print("⚠️ Crypto results empty — skipped adding to stats.")
+print("\n✅ All results saved to:")
+print(" - data/portfolio_results_all.csv")
+print(" - data/portfolio_stats_all.csv")
+print(" - data/asset_daily_returns.csv")
 
-# Create DataFrame
-stats_df = pd.DataFrame(stats_all)
-
-# Save outputs
-stats_df.to_csv("data/portfolio_stats.csv", index=False)
-perf.to_csv("data/portfolio_results.csv", index=False)
-
-print("✅ Portfolio results saved to data/portfolio_results.csv")
-print("✅ Portfolio stats saved to data/portfolio_stats.csv")
-
-print("\n📊 Portfolio Stats Summary:")
-print(stats)
+# === Store to DuckDB ===
+con = duckdb.connect("data/backtest_results.duckdb")
+con.execute("CREATE OR REPLACE TABLE portfolio_results AS SELECT * FROM perf_df")
+con.execute("CREATE OR REPLACE TABLE portfolio_stats AS SELECT * FROM stats_df")
+# Keep metadata in DuckDB version if you want
+con.execute("CREATE OR REPLACE TABLE asset_daily_returns AS SELECT * FROM asset_ret_df")
+con.close()
+print("✅ Saved results to DuckDB: data/backtest_results.duckdb")
