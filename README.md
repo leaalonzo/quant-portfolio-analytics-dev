@@ -198,22 +198,20 @@ docker run -p 8501:8501 quant-portfolio
 ## Database Queries
 ```sql
 -- Portfolio performance
-SELECT date, cumulative_return
+SELECT date, cumulative
 FROM portfolio_results
 WHERE asset_type = 'Equity';
 
 -- Holdings analysis
-SELECT ticker, COUNT(*) as appearances
+SELECT tickers, COUNT(*) as appearances
 FROM portfolio_holdings
-GROUP BY ticker
+GROUP BY tickers
 ORDER BY appearances DESC;
 ```
 
 ---
 
 ## Author
-
-**Lea Alonzo**  
 
 [![LinkedIn](https://img.shields.io/badge/LinkedIn-Connect-blue)](https://www.linkedin.com/in/leaalonzo/)
 [![GitHub](https://img.shields.io/badge/GitHub-Follow-black)](https://github.com/leaalonzo)
@@ -222,7 +220,7 @@ ORDER BY appearances DESC;
 
 ## Disclaimer
 
-Personal educational project developed independently. Not affiliated with any employer. Uses only publicly available market data. Not investment advice.
+This is a personal educational project developed independently. 
 
 ---
 
