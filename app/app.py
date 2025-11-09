@@ -79,8 +79,7 @@ else:
     
     st.subheader("🔍 Data Preparation")
     
-    # === FILTER BY ASSET TYPE (NEW CODE) ===
-    # Determine which columns belong to the selected asset_type
+    # === FILTER BY ASSET TYPE ===
     def get_asset_type_from_ticker(ticker):
         """Determine if a ticker is Equity or Crypto based on naming convention"""
         if '-USD' in ticker:
@@ -100,8 +99,6 @@ else:
     
     # Use only the filtered assets
     pivot = asset_returns[available_tickers].copy()
-    # === END NEW CODE ===
-    
     pivot = pivot.select_dtypes(include=["number"])
     
     # Calculate NaN percentages
@@ -110,31 +107,36 @@ else:
     st.write("**Top 10 assets by data quality:**")
     st.dataframe(nan_pct.sort_values().head(10).to_frame('NaN %'))
     
-    # Use 50% threshold
-    threshold = 50
+    # === DYNAMIC THRESHOLD BASED ON ASSET TYPE ===
+    # Equities have sparser data due to portfolio selection, so use higher threshold
+    if asset_type == 'Equity':
+        threshold = 80  # Allow up to 80% NaNs for equities
+        st.info("ℹ️ Using 80% NaN threshold for Equity (due to sparse portfolio selection)")
+    else:
+        threshold = 50  # Crypto has better coverage
+        st.info("ℹ️ Using 50% NaN threshold for Crypto")
+    
     pivot_clean = pivot.loc[:, nan_pct < threshold]
     
     st.write(f"\n**Assets with <{threshold}% NaNs:** {list(pivot_clean.columns)}")
     st.write(f"**Shape:** {pivot_clean.shape}")
     
     if pivot_clean.shape[1] < 2:
-        st.error(f"❌ Only {pivot_clean.shape[1]} {asset_type} assets available")
+        st.error(f"❌ Only {pivot_clean.shape[1]} {asset_type} assets available with <{threshold}% NaNs")
+        
+        # Show what's available at different thresholds
+        st.write("\n**Assets available at different thresholds:**")
+        for thresh in [95, 90, 85, 80, 70, 60, 50]:
+            count = (nan_pct < thresh).sum()
+            st.write(f"- <{thresh}% NaNs: {count} assets")
         st.stop()
     
-    # Check for infinities BEFORE filling NaNs
+    # Check for infinities
     inf_count_before = np.isinf(pivot_clean).sum().sum()
     st.write(f"**Infinity values found:** {inf_count_before}")
     
-    if inf_count_before > 0:
-        st.write("**Columns with infinities:**")
-        inf_cols = pivot_clean.columns[np.isinf(pivot_clean).any()].tolist()
-        for col in inf_cols:
-            inf_count = np.isinf(pivot_clean[col]).sum()
-            st.write(f"  - {col}: {inf_count} infinities")
-    
     # Replace infinities with NaN, then fill
     pivot_clean = pivot_clean.replace([np.inf, -np.inf], np.nan)
-    st.write(f"**After replacing infinities with NaN:** {pivot_clean.isna().sum().sum()} NaNs")
     
     # Fill NaNs
     pivot_clean = pivot_clean.fillna(method='ffill').fillna(method='bfill').fillna(0)
@@ -147,7 +149,7 @@ else:
     pivot_clean = pivot_clean.loc[:, pivot_clean.std() > 1e-6]
     st.write(f"**After dropping zero variance:** {pivot_clean.shape}")
     
-    # Final check for NaNs and infinities
+    # Final check
     final_nans = pivot_clean.isna().sum().sum()
     final_infs = np.isinf(pivot_clean).sum().sum()
     
@@ -174,10 +176,16 @@ else:
         
         w_series = pd.Series(weights)
         
+        # Check if all weights are zero (optimization failed silently)
+        if w_series.sum() == 0 or len(w_series[w_series > 0]) == 0:
+            st.warning("⚠️ Optimization returned zero weights - using equal weights instead")
+            weights = {ticker: 1.0/len(pivot_clean.columns) for ticker in pivot_clean.columns}
+            w_series = pd.Series(weights)
+        
         st.subheader("Optimized Weights")
         fig = px.bar(x=w_series.index, y=w_series.values, 
                      labels={'x': 'Asset', 'y': 'Weight'},
-                     title=f'{asset_type} Portfolio Allocation')
+                     title=f'{asset_type} Portfolio Allocation ({opt_method})')
         st.plotly_chart(fig, use_container_width=True)
         
         ann_return, ann_vol, sharpe = perf
