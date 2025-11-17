@@ -1,3 +1,5 @@
+import streamlit as st
+import streamlit.config as config
 import sys
 from pathlib import Path
 
@@ -5,7 +7,6 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-import streamlit as st
 import pandas as pd
 import plotly.express as px
 from utils.optimize import optimize_portfolio
