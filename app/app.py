@@ -166,7 +166,7 @@ else:
     pivot_clean = pivot_clean.replace([np.inf, -np.inf], np.nan)
     
     # Fill NaNs
-    pivot_clean = pivot_clean.fillna(method='ffill').fillna(method='bfill').fillna(0)
+    pivot_clean = pivot_clean.ffill().bfill().fillna(0)
     
     # Clip extreme values
     pivot_clean = pivot_clean.clip(lower=-0.50, upper=1.00)
